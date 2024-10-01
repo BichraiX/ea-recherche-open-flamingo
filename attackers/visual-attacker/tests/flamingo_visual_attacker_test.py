@@ -4,6 +4,10 @@ import torch
 from PIL import Image
 import requests
 import torch
+import ssl
+import urllib.request
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 model, image_processor, tokenizer = create_model_and_transforms(
     clip_vision_encoder_path="ViT-L-14",
@@ -20,11 +24,7 @@ print('Step 1: Load images')
 """
 Step 1: Load images
 """
-demo_image_one = Image.open(
-    requests.get(
-        "http://images.cocodataset.org/val2017/000000039769.jpg", stream=True
-    ).raw
-)
+demo_image_one = 
 
 demo_image_two = Image.open(
     requests.get(
@@ -74,9 +74,7 @@ Step 4: Generate text
 generated_text = model.generate(
     vision_x=vision_x,
     lang_x=lang_x["input_ids"],
-    attention_mask=lang_x["attention_mask"],
-    max_new_tokens=20,
-    num_beams=3,
+    attention_mask=lang_x["attention_mask"]
 )
 
 print("Generated text: ", tokenizer.decode(generated_text[0]))
