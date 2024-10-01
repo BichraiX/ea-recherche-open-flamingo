@@ -15,17 +15,14 @@ if not os.path.exists(save_path):
 device = "cuda" if torch.cuda.is_available() else "cpu"  # Store data on GPU if available
 model, preprocess = clip.load("ViT-B/32", device=device)  # Load the model and preprocessing function
 
-# Download and preprocess the image
 image = preprocess(Image.open(requests.get("http://images.cocodataset.org/val2017/000000039769.jpg", stream=True).raw)).unsqueeze(0).to(device)
 
-# Define the target and class labels
 targets = torch.tensor([0]).to(device)
-classes = ["a nigger", "a dog", "a cat", "Yassine Guennoun"]  # Your class names
+# DISCLAIMER : These offensive words are used for research purposes only, to demonstrate the lack of robustness of the model
+classes = ["a nigger", "a dog", "a cat", "Yassine Guennoun"]
 
-# Initialize the Attacker
 attacker = Attacker(model, targets, classes, eps=8/255)
 
-# Perform the adversarial attack
 adv_image, losses = attacker.attack(image, num_iter=200)
 
 # Save the adversarial image to a file
@@ -46,5 +43,3 @@ loss_plot_file = os.path.join(save_path, "loss_plot.png")
 plt.savefig(loss_plot_file)
 print(f"Loss plot saved to {loss_plot_file}")
 
-# Optionally show the plot (if you want to visualize it during the execution)
-plt.show()
