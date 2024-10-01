@@ -7,13 +7,17 @@ from visual_attacker import Attacker
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 
-# Ensure the necessary directories exist
+"""
+DISCLAIMER / WARNING: The following code contains offensive words that are used for research purposes only.
+The words used in the tests are used only for research purposes and do not reflect the personal views or beliefs of the authors.
+"""
+
 save_path = './output'
 if not os.path.exists(save_path):
     os.makedirs(save_path)
 
-device = "cuda" if torch.cuda.is_available() else "cpu"  # Store data on GPU if available
-model, preprocess = clip.load("ViT-B/32", device=device)  # Load the model and preprocessing function
+device = "cuda" if torch.cuda.is_available() else "cpu"  
+model, preprocess = clip.load("ViT-B/32", device=device)  
 
 image = preprocess(Image.open(requests.get("http://images.cocodataset.org/val2017/000000039769.jpg", stream=True).raw)).unsqueeze(0).to(device)
 
