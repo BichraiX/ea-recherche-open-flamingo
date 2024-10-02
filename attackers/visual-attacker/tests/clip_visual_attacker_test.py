@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 
 """
-DISCLAIMER / WARNING: The following code contains offensive words that are used for research purposes only.
+DISCLAIMER / WARNING: The following code contains offensive words that are used for research purposes only. (and our fun)
 The words used in the tests are used only for research purposes and do not reflect the personal views or beliefs of the authors.
 """
 
