@@ -3,6 +3,9 @@ import clip
 from PIL import Image
 import requests
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from visual_attacker import Attacker
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
@@ -20,14 +23,17 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("ViT-B/32", device=device)  
 
 image = preprocess(Image.open(requests.get("http://images.cocodataset.org/val2017/000000039769.jpg", stream=True).raw)).unsqueeze(0).to(device)
+local_image_path = '/users/eleves-b/2022/antoine.maechler/Desktop/ea-recherche-open-flamingo/attackers/visual-attacker/tests/test_denoised.jpg'
+image2 = preprocess(Image.open(local_image_path)).unsqueeze(0).to(device)
 
 targets = torch.tensor([0]).to(device)
 # DISCLAIMER : These offensive words are used for research purposes only, to demonstrate the lack of robustness of the model
-classes = ["a nigger", "a dog", "a cat", "Yassine Guennoun"]
+classes = ["a car", "a dog", "a cat", "Yassine Guennoun"]
 
 attacker = Attacker(model, targets, classes, eps=8/255)
 
 adv_image, losses = attacker.attack(image, num_iter=200)
+loss2 = attacker.loss(image2)
 
 # Save the adversarial image to a file
 adv_image_file = os.path.join(save_path, "adversarial_image.png")
@@ -40,6 +46,7 @@ plt.plot(losses, label="Loss")
 plt.xlabel("Iteration")
 plt.ylabel("Loss")
 plt.title("Loss During Adversarial Attack")
+plt.axhline(y=loss2.item(), color='r', linestyle='--')
 plt.legend()
 
 # Save the loss plot
@@ -47,3 +54,5 @@ loss_plot_file = os.path.join(save_path, "loss_plot.png")
 plt.savefig(loss_plot_file)
 print(f"Loss plot saved to {loss_plot_file}")
 
+print(loss2.item())
+print(attacker.predict(image2))

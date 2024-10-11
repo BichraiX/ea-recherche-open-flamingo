@@ -40,6 +40,17 @@ class Attacker:
         # freeze and set to eval model:
         self.model.eval()
         self.model.requires_grad_(False)
+    
+    def loss(self, img):
+        x = denormalize(img).clone().to(self.device)
+        x_adv = normalize(x)
+        logits_per_image, logits_per_text = self.model(x_adv, self.text)            
+        # Calculate loss and append it to the loss list
+        target_loss = torch.nn.functional.cross_entropy(logits_per_image, self.target)
+        return(target_loss)
+    
+    def predict(self, img):
+        return(generate_prompt(self.model, self.classes, img, self.text))
 
         
     def attack(self, img, batch_size = 8, num_iter = 2000):
