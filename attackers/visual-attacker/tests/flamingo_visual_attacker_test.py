@@ -6,6 +6,9 @@ import requests
 import torch
 import ssl
 import urllib.request
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
