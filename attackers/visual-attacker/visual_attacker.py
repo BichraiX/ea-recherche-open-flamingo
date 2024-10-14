@@ -81,7 +81,7 @@ class Attacker:
                     print('>>> Sample Outputs')
                     print(self.generate_prompt(x_adv))
                 adv_img_prompt = denormalize(x_adv).detach().cpu()
-        return x_adv, loss_values
+        return adv_img_prompt, loss_values
     
     def attack_unspecific(self, img, num_iter=2000):
         adv_noise = torch.randn_like(img).to(self.device) * 2 * self.eps - self.eps

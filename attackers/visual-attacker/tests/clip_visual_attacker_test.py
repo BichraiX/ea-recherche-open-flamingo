@@ -10,49 +10,51 @@ from visual_attacker import Attacker
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 
-"""
-DISCLAIMER / WARNING: The following code contains offensive words that are used for research purposes only.
-The words used in the tests are used only for research purposes and do not reflect the personal views or beliefs of the authors.
-"""
+# Create output directory if it doesn't exist
+output_dir = "plots"
+os.makedirs(output_dir, exist_ok=True)
 
-save_path = './output'
-if not os.path.exists(save_path):
-    os.makedirs(save_path)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model, preprocess = clip.load("ViT-B/32", device=device)
 
-device = "cuda" if torch.cuda.is_available() else "cpu"  
-model, preprocess = clip.load("ViT-B/32", device=device)  
-
+# Load and preprocess the image
 image = preprocess(Image.open(requests.get("http://images.cocodataset.org/val2017/000000039769.jpg", stream=True).raw)).unsqueeze(0).to(device)
-local_image_path = '/users/eleves-b/2022/antoine.maechler/Desktop/ea-recherche-open-flamingo/attackers/visual-attacker/tests/test_denoised.jpg'
-image2 = preprocess(Image.open(local_image_path)).unsqueeze(0).to(device)
 
-targets = torch.tensor([0]).to(device)
-# DISCLAIMER : These offensive words are used for research purposes only, to demonstrate the lack of robustness of the model
+# Set target and class names
+target = torch.tensor([0]).to(device)
 classes = ["a car", "a dog", "a cat", "Yassine Guennoun"]
 
-attacker = Attacker(model, targets, classes, eps=8/255)
+# Initialize the attacker
+attacker = Attacker(model, classes, device=device, eps=8/255)
 
-adv_image, losses = attacker.attack(image, num_iter=200)
-loss2 = attacker.loss(image2)
+# Perform specific attack
+adv_image_specific, losses_specific = attacker.attack_specific(image, target, num_iter=200)
 
-# Save the adversarial image to a file
-adv_image_file = os.path.join(save_path, "adversarial_image.png")
-save_image(adv_image, adv_image_file)
-print(f"Adversarial image saved to {adv_image_file}")
+# Perform unspecific attack
+adv_image_unspecific, losses_unspecific = attacker.attack_unspecific(image, num_iter=200)
 
-# Plot the loss values and save the plot to a file
+# Plot and save the loss values for the specific attack
 plt.figure(figsize=(10, 6))
-plt.plot(losses, label="Loss")
+plt.plot(losses_specific, label="Specific Attack Loss")
 plt.xlabel("Iteration")
 plt.ylabel("Loss")
-plt.title("Loss During Adversarial Attack")
-plt.axhline(y=loss2.item(), color='r', linestyle='--')
+plt.title("Loss During Specific Adversarial Attack")
 plt.legend()
 
-# Save the loss plot
-loss_plot_file = os.path.join(save_path, "loss_plot.png")
-plt.savefig(loss_plot_file)
-print(f"Loss plot saved to {loss_plot_file}")
+# Save the specific attack loss plot
+loss_plot_file_specific = os.path.join(output_dir, "loss_plot_specific.png")
+plt.savefig(loss_plot_file_specific)
+print(f"Specific attack loss plot saved to {loss_plot_file_specific}")
 
-print(loss2.item())
-print(attacker.predict(image2))
+# Plot and save the loss values for the unspecific attack
+plt.figure(figsize=(10, 6))
+plt.plot(losses_unspecific, label="Unspecific Attack Loss", color='red')
+plt.xlabel("Iteration")
+plt.ylabel("Loss")
+plt.title("Loss During Unspecific Adversarial Attack")
+plt.legend()
+
+# Save the unspecific attack loss plot
+loss_plot_file_unspecific = os.path.join(output_dir, "loss_plot_unspecific.png")
+plt.savefig(loss_plot_file_unspecific)
+print(f"Unspecific attack loss plot saved to {loss_plot_file_unspecific}")
