@@ -33,12 +33,12 @@ class Attacker:
 
         self.model.eval()
         self.model.requires_grad_(False)
-    def loss(self, img):
+    def loss(self, img, target):
         x = denormalize(img).clone().to(self.device)
         x_adv = normalize(x)
         logits_per_image, logits_per_text = self.model(x_adv, self.text)
         # Calculate loss and append it to the loss list
-        target_loss = torch.nn.functional.cross_entropy(logits_per_image, self.target)
+        target_loss = torch.nn.functional.cross_entropy(logits_per_image, target)
         return(target_loss)
     
     def generate_prompt(self,image):

@@ -33,9 +33,9 @@ targets = torch.tensor([0]).to(device)
 # DISCLAIMER : These offensive words are used for research purposes only, to demonstrate the lack of robustness of the model
 classes = ["a car", "a dog", "a cat", "Yassine Guennoun"]
 
-attacker = Attacker(model, targets, classes, eps=8/255)
+attacker = Attacker(model, classes, device = device, eps=8/255)
 
-adv_image, losses = attacker.attack(image, num_iter=200)
+adv_image, losses = attacker.attack_specific(image, targets, num_iter=200)
 
 # Save the adversarial image to a file
 
@@ -58,7 +58,7 @@ print(f"Loss plot saved to {loss_plot_file}")
 
 # finding optimal value of d and sigma
 
-sigma_values = [2*x for x in range(1, 50)]
+sigma_values = [2*x for x in range(1, 40)]
 loss_values=[]
 result = []
 cat_proba = []
@@ -70,7 +70,7 @@ for sig in sigma_values:
         adversarial_image = adversarial_image.cpu()
 
     adversarial_image_np = adversarial_image.detach().numpy()
-    adversarial_image_np = adversarial_image_np.transpose(1, 2, 0)  # (C, H, W) to (H, W, C) for RGB
+    adversarial_image_np = adversarial_image_np.transpose(0, 2, 3, 1)  # (C, H, W) to (H, W, C) for RGB
     adversarial_image_np = np.clip(adversarial_image_np * 255, 0, 255).astype(np.uint8)
 
     denoised_image = cv2.bilateralFilter(adversarial_image_np, d=-1, sigmaColor=sig, sigmaSpace=sig)
@@ -90,7 +90,7 @@ for sig in sigma_values:
         adv_image_file = os.path.join(save_path, "sig_90_image.png")
         save_image(denoised_image_tensor, adv_image_file)
 
-    loss_values.append(attacker.loss(denoised_image_tensor).item())
+    loss_values.append(attacker.loss(denoised_image_tensor, targets).item())
 
     result.append(attacker.predict(denoised_image_tensor))
     cat_proba.append(attacker.proba_vect(denoised_image_tensor)[0, 2].item())
