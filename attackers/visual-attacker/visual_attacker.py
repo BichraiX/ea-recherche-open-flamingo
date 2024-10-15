@@ -34,7 +34,13 @@ class Attacker:
         self.alpha = alpha
         self.model.eval()
         self.model.requires_grad_(False)
-
+    def loss(self, img):
+        x = denormalize(img).clone().to(self.device)
+        x_adv = normalize(x)
+        logits_per_image, logits_per_text = self.model(x_adv, self.text)
+        # Calculate loss and append it to the loss list
+        target_loss = torch.nn.functional.cross_entropy(logits_per_image, self.target)
+        return(target_loss)
     
     def generate_prompt(self,image):
         with torch.no_grad():
@@ -50,6 +56,14 @@ class Attacker:
             top5_probs, top5_indices = probs.topk(5, dim=-1)
             
         return [(top5_probs[0, i].item(), self.classes[top5_indices[0, i].item()]) for i in range(5)]
+    
+    def predict(self, img):
+        return(self.generate_prompt(img))
+
+    def proba_vect(self, img):
+        with torch.no_grad():
+            logits_per_image, logits_per_text = self.model(img, self.text)
+        return logits_per_image
 
     def attack_specific(self, img, target, num_iter = 2000):
         adv_noise = torch.randn_like(img).to(self.device) * 2 * self.eps - self.eps
