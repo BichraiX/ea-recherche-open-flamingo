@@ -22,8 +22,8 @@ num_iter = 10
 
 # Download the CIFAR-100 dataset and pick consistent images
 cifar100 = CIFAR100(root=os.path.expanduser("~/.cache"), download=True, train=False)
-n_samples = 50  # Fixed number of images
-fixed_indices = list(range(n_samples))  # Use first 50 images (fixed)
+n_samples = 100 
+fixed_indices = list(range(n_samples)) 
 images_and_labels = [(cifar100[i][0], cifar100[i][1]) for i in fixed_indices]
 target_class_id = 0
 batch_size = 2
