@@ -85,7 +85,7 @@ class Attacker:
             adv_noise.grad.zero_()
             self.model.zero_grad()
             
-            if t % 100 == 0:
+            if t % 10 == 0:
                 print('######### Output - Iter = %d ##########' % t)
                 x_adv = x + adv_noise
                 x_adv = normalize(x_adv)
@@ -117,7 +117,7 @@ class Attacker:
             adv_noise.grad.zero_()
             self.model.zero_grad()
             
-            if t % 100 == 0:
+            if t % 10 == 0:
                 print('######### Output - Iter = %d ##########' % t)
                 x_adv = x + adv_noise
                 x_adv = normalize(x_adv)

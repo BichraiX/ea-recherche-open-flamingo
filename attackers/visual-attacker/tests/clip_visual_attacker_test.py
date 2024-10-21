@@ -12,7 +12,7 @@ from torchvision.utils import save_image
 
 # Create output directory if it doesn't exist
 output_dir = "plots"
-num_iter = 100
+num_iter = 11
 os.makedirs(output_dir, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
