@@ -18,7 +18,7 @@ os.makedirs(output_dir, exist_ok=True)
 # Load the model
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load('ViT-B/32', device)
-num_iter = 10
+num_iter = 11
 
 # Download the CIFAR-100 dataset and pick consistent images
 cifar100 = CIFAR100(root=os.path.expanduser("~/.cache"), download=True, train=False)
