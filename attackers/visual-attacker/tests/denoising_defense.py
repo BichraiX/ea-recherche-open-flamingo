@@ -58,7 +58,7 @@ loss_plot_file = os.path.join(save_path, "loss_plot.png")
 plt.savefig(loss_plot_file)
 print(f"Loss plot saved to {loss_plot_file}")
 
-# finding optimal value of d and sigma
+# finding optimal value of sigma
 
 sigma_values = [x/20 for x in range(1, 100)]
 loss_values=[]
