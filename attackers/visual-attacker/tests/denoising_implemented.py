@@ -12,6 +12,8 @@ from visual_attacker import Attacker
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 
+import kornia.filters as kf
+
 """
 DISCLAIMER / WARNING: The following code contains offensive words that are used for research purposes only.
 The words used in the tests are used only for research purposes and do not reflect the personal views or beliefs of the authors.
@@ -33,9 +35,9 @@ targets = torch.tensor([0]).to(device)
 # DISCLAIMER : These offensive words are used for research purposes only, to demonstrate the lack of robustness of the model
 classes = ["a car", "a dog", "a cat", "Yassine Guennoun"]
 
-attacker = Attacker(model, targets, classes, eps=8/255)
+attacker = Attacker(model, classes, device = device, eps=8/255)
 
-adv_image, losses = attacker.attack(image, num_iter=200)
+adv_image, losses = attacker.attack_specific(image, targets, num_iter=200)
 
 # Save the adversarial image to a file
 
@@ -58,39 +60,33 @@ print(f"Loss plot saved to {loss_plot_file}")
 
 # finding optimal value of d and sigma
 
-sigma_values = [x for x in range(1, 60)]
+sigma_values = [x/20 for x in range(1, 100)]
 loss_values=[]
 result = []
+cat_proba = []
+car_proba = []
 
 for sig in sigma_values:
-    adversarial_image = adv_image
-    if adversarial_image.is_cuda:
-        adversarial_image = adversarial_image.cpu()
+    adversarial_image = adv_image.to(device)
 
-    adversarial_image_np = adversarial_image.detach().numpy()
-    adversarial_image_np = adversarial_image_np.transpose(1, 2, 0)  # (C, H, W) to (H, W, C) for RGB
-    adversarial_image_np = np.clip(adversarial_image_np * 255, 0, 255).astype(np.uint8)
-
-    denoised_image = cv2.bilateralFilter(adversarial_image_np, d=-1, sigmaColor=sig, sigmaSpace=sig)
-    rgb_denoised_image = cv2.cvtColor(denoised_image, cv2.COLOR_BGR2RGB)
-    final_denoised_image = Image.fromarray(rgb_denoised_image)
-
-    denoised_image_tensor = preprocess(final_denoised_image).unsqueeze(0).to(device)
-
+    denoised_image = kf.bilateral_blur(adversarial_image, kernel_size=(5, 5), sigma_color=sig, sigma_space=(sig,sig))
+    
     print(sig)
-    if sig==10:
-        adv_image_file = os.path.join(save_path, "sig_10_image.png")
-        save_image(denoised_image_tensor, adv_image_file)
-    if sig==30:
-        adv_image_file = os.path.join(save_path, "sig_30_image.png")
-        save_image(denoised_image_tensor, adv_image_file)
-    if sig==90:
-        adv_image_file = os.path.join(save_path, "sig_90_image.png")
-        save_image(denoised_image_tensor, adv_image_file)
+    if sig==0.5:
+        adv_image_file = os.path.join(save_path, "sig_0.5_image.png")
+        save_image(denoised_image, adv_image_file)
+    if sig==1:
+        adv_image_file = os.path.join(save_path, "sig_1_image.png")
+        save_image(denoised_image, adv_image_file)
+    if sig==4:
+        adv_image_file = os.path.join(save_path, "sig_4_image.png")
+        save_image(denoised_image, adv_image_file)
 
-    loss_values.append(attacker.loss(denoised_image_tensor).item())
+    loss_values.append(attacker.loss(denoised_image, targets).item())
 
-    result.append(attacker.predict(denoised_image_tensor))
+    result.append(attacker.predict(denoised_image))
+    cat_proba.append(attacker.proba_vect(denoised_image)[0, 2].item())
+    car_proba.append(attacker.proba_vect(denoised_image)[0, 0].item())
 
 correct_predictions = [pred == 'a cat' for pred in result]
 
@@ -116,3 +112,19 @@ plt.legend()
 sigma_plot_file = os.path.join(save_path, "sigma_plot.png")
 plt.savefig(sigma_plot_file)
 print(f"Sigma plot saved to {sigma_plot_file}")
+
+# plot the evolution of probability during optimization
+
+plt.figure(figsize=(10, 6))
+
+plt.plot(sigma_values, cat_proba, color='b', label='proba cat')
+plt.plot(sigma_values, car_proba, color='r', label='proba car')
+plt.xlabel("Sigma")
+plt.ylabel("Proba")
+plt.title("Proba Depending on Sigma")
+plt.legend()
+
+# Save the proba plot
+proba_plot_file = os.path.join(save_path, "proba_plot.png")
+plt.savefig(proba_plot_file)
+print(f"Proba plot saved to {proba_plot_file}")
