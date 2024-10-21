@@ -12,6 +12,7 @@ from torchvision.utils import save_image
 
 # Create output directory if it doesn't exist
 output_dir = "plots"
+num_iter = 50
 os.makedirs(output_dir, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -28,10 +29,10 @@ classes = ["a car", "a dog", "a cat", "Yassine Guennoun"]
 attacker = Attacker(model, classes, device=device, eps=8/255)
 
 # Perform specific attack
-adv_image_specific, losses_specific = attacker.attack_specific(image, target, num_iter=200)
-
+adv_image_specific, losses_specific = attacker.attack_specific(image, target, num_iter=num_iter)
+model_output = torch.tensor([2]).to(device)
 # Perform unspecific attack
-adv_image_unspecific, losses_unspecific = attacker.attack_unspecific(image, num_iter=200)
+adv_image_unspecific, losses_unspecific = attacker.attack_unspecific(image, model_output,num_iter=num_iter)
 
 # Plot and save the loss values for the specific attack
 plt.figure(figsize=(10, 6))

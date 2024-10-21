@@ -34,6 +34,8 @@ specific_attack_success_rates = []
 unspecific_attack_success_rates = []
 top5_probs_table = []
 
+def get_one_hot_from_class(class_name):
+    return torch.tensor([cifar100.classes.index(class_name)])
 # Function to save batch results and return top 5 probabilities
 def save_batch_figures(images_and_labels, batch_index, model, attacker):
     fig, axes = plt.subplots(len(images_and_labels), 2, figsize=(10, len(images_and_labels) * 5))
@@ -46,10 +48,10 @@ def save_batch_figures(images_and_labels, batch_index, model, attacker):
     for i, (image, class_id) in enumerate(images_and_labels):
         image_input = preprocess(image).unsqueeze(0).to(device)
         target = torch.tensor([target_class_id]).to(device)  # Set target class for specific attack
-
+        model_output = get_one_hot_from_class(attacker.generate_prompt(image_input)).to(device)
         # Perform specific and unspecific attacks
         adv_img_specific, _ = attacker.attack_specific(image_input, target, num_iter=num_iter)
-        adv_img_unspecific, _ = attacker.attack_unspecific(image_input, num_iter=num_iter)
+        adv_img_unspecific, _ = attacker.attack_unspecific(image_input, model_output, num_iter=num_iter)
 
         # Get predictions
         ground_truth_prediction = attacker.generate_prompt(image_input)
