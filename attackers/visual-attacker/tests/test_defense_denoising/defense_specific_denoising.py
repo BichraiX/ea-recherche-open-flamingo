@@ -31,7 +31,11 @@ batch_size = 2
 eps = 8/255
 
 # Range of sigma values
-sigmas = [i / 5 for i in range(1, 16)]
+sigmas = torch.tensor([i / 5 for i in range(1, 16)])
+log_sigmas_100 = torch.logspace(start=torch.log10(torch.tensor(0.001)),
+                            end=torch.log10(torch.tensor(1000.0)),
+                            steps=40)
+
 specific_attack_success_rates = []
 denoised_specific_attack_success_rates = []
 denoised_right_label_rates = []
@@ -56,8 +60,8 @@ def save_batch_denoised_specific_figures(images_and_labels, batch_index, model, 
         adv_img_specific, _ = attacker.attack_specific(image_input, target, num_iter=num_iter)
 
         #denoise the images
-        denoised_image_input = kf.bilateral_blur(image_input, kernel_size=(5, 5), sigma_color=sig, sigma_space=(sig,sig))
-        denoised_adv_img_specific = kf.bilateral_blur(adv_img_specific, kernel_size=(5, 5), sigma_color=sig, sigma_space=(sig,sig))
+        denoised_image_input = kf.bilateral_blur(image_input, kernel_size=(5, 5), sigma_color=sig, sigma_space=(26, 26))
+        denoised_adv_img_specific = kf.bilateral_blur(adv_img_specific, kernel_size=(5, 5), sigma_color=sig, sigma_space=(26, 26))
 
         # Get predictions
         ground_truth_prediction = attacker.generate_prompt(image_input)
@@ -78,8 +82,8 @@ def save_batch_denoised_specific_figures(images_and_labels, batch_index, model, 
 attacker = Attacker(model, cifar100.classes, device=device, eps=eps)
 
 # Loop over different sigma values and calculate success rates
-for sig in sigmas:
-    print(f"Processing for sigma = {sig}")
+for sig in log_sigmas_100:
+    print(f"Processing for sigma = {sig.item()}")
     
     # Reset success counters for this epsilon
     specific_attack_success = 0
@@ -94,7 +98,7 @@ for sig in sigmas:
 
         # Save the current batch results as a figure with top 5 predictions
         ground_truth_preds, denoised_ground_truth_preds, specific_preds, denoised_specific_preds, labels_list = save_batch_denoised_specific_figures(
-            batch_images_and_labels, batch_index // batch_size, model, attacker, sig
+            batch_images_and_labels, batch_index // batch_size, model, attacker, sig.item()
         )
 
         # Perform success rate calculations using the returned predictions
@@ -124,23 +128,26 @@ for sig in sigmas:
     consistency_success_rates.append(consistency_success_rate)
     consistency_with_clip.append(same_as_clip_rate)
 
-    print(f"Sigma: {sig}, Specific Attack Success Rate: {specific_attack_success_rate:.2f}%")
-    print(f"Sigma: {sig}, Denoised Specific Attack Success Rate: {denoised_specific_attack_success_rate:.2f}%")
-    print(f"Sigma: {sig}, Denoised Specific Attack Exact Prediction: {denoised_right_label_rate:.2f}%")
-    print(f"Sigma: {sig}, Consistency Success Rate: {consistency_success_rate:.2f}%")
-    print(f"Sigma: {sig}, Consistency with CLIP Success Rate: {same_as_clip_rate:.2f}%")
+    print(f"Sigma: {sig.item()}, Specific Attack Success Rate: {specific_attack_success_rate:.2f}%")
+    print(f"Sigma: {sig.item()}, Denoised Specific Attack Success Rate: {denoised_specific_attack_success_rate:.2f}%")
+    print(f"Sigma: {sig.item()}, Denoised Specific Attack Exact Prediction: {denoised_right_label_rate:.2f}%")
+    print(f"Sigma: {sig.item()}, Consistency Success Rate: {consistency_success_rate:.2f}%")
+    print(f"Sigma: {sig.item()}, Consistency with CLIP Success Rate: {same_as_clip_rate:.2f}%")
 
 # Plot success rate vs sigma
 plt.figure(figsize=(8, 6))
-plt.plot(sigmas, specific_attack_success_rates, label="Specific Attack", marker='o', color='red')
-plt.plot(sigmas, denoised_specific_attack_success_rates, label="Denoised Specific Attack", marker='o', color='orange')
-plt.plot(sigmas, denoised_right_label_rates, label="Denoised Right Prediction", marker='o', color='green')
-plt.plot(sigmas, consistency_success_rates, label='Consistency without attack', marker='o', color='blue')
-plt.plot(sigmas, consistency_with_clip, label='Consistency vs CLIP prediction', marker='o', color='purple')
+plt.plot(log_sigmas_100.cpu().tolist(), specific_attack_success_rates, label="Specific Attack", marker='o', color='red')
+plt.plot(log_sigmas_100.cpu().tolist(), denoised_specific_attack_success_rates, label="Denoised Specific Attack", marker='o', color='orange')
+plt.plot(log_sigmas_100.cpu().tolist(), denoised_right_label_rates, label="Denoised Right Prediction", marker='o', color='green')
+plt.plot(log_sigmas_100.cpu().tolist(), consistency_success_rates, label='Consistency without attack', marker='o', color='blue')
+plt.plot(log_sigmas_100.cpu().tolist(), consistency_with_clip, label='Consistency vs CLIP prediction', marker='o', color='purple')
 plt.title("Specific Adversarial Attack Success Rate vs Sigma")
 plt.xlabel("Sigma")
 plt.ylabel("Success Rate (%)")
+
+plt.xscale("log")
+
 plt.legend()
 plt.grid(True)
-plt.savefig(os.path.join(output_dir, "attack_success_vs_sigma.png"))
+plt.savefig(os.path.join(output_dir, "attack_success_vs_sigma_sigspace_fixed.png"))
 plt.close()
