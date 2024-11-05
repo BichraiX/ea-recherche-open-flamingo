@@ -32,7 +32,6 @@ batch_size = 2
 epsilons = [i / 255 for i in range(1, 11)]
 specific_attack_success_rates = []
 unspecific_attack_success_rates = []
-top5_probs_table = []
 
 def get_one_hot_from_class(class_name):
     return torch.tensor([cifar100.classes.index(class_name)])
@@ -43,15 +42,14 @@ def save_batch_figures(images_and_labels, batch_index, model, attacker):
     batch_ground_truth_preds = []
     batch_specific_attack_preds = []
     batch_unspecific_attack_preds = []
-    top5_probs_row = []
 
     for i, (image, class_id) in enumerate(images_and_labels):
         image_input = preprocess(image).unsqueeze(0).to(device)
         target = torch.tensor([target_class_id]).to(device)  # Set target class for specific attack
         model_output = get_one_hot_from_class(attacker.generate_prompt(image_input)).to(device)
         # Perform specific and unspecific attacks
-        adv_img_specific, _ = attacker.attack_specific(image_input, target, num_iter=num_iter)
-        adv_img_unspecific, _ = attacker.attack_unspecific(image_input, model_output, num_iter=num_iter)
+        adv_img_specific, _ = attacker.eot_attack_specific(image_input, target, num_iter=num_iter)
+        adv_img_unspecific, _ = attacker.eot_attack_unspecific(image_input, model_output, num_iter=num_iter)
 
         # Get predictions
         ground_truth_prediction = attacker.generate_prompt(image_input)
@@ -62,18 +60,6 @@ def save_batch_figures(images_and_labels, batch_index, model, attacker):
         batch_ground_truth_preds.append(ground_truth_prediction)
         batch_specific_attack_preds.append(specific_attack_prediction)
         batch_unspecific_attack_preds.append(unspecific_attack_prediction)
-
-        # Save top 5 probabilities for the table (for the first image only)
-        if i == 0:
-            top5_probs = {
-                "ground_truth": attacker.get_top5_probs(image_input),
-                "specific": attacker.get_top5_probs(adv_img_specific.to(device)),
-                "unspecific": attacker.get_top5_probs(adv_img_unspecific.to(device))
-            }
-            top5_probs_row.append(top5_probs)
-
-    # Add top 5 probs for this batch
-    top5_probs_table.append(top5_probs_row)
 
     return batch_ground_truth_preds, batch_specific_attack_preds, batch_unspecific_attack_preds
 
@@ -111,33 +97,18 @@ for eps in epsilons:
     specific_attack_success_rates.append(specific_attack_success_rate)
     unspecific_attack_success_rates.append(unspecific_attack_success_rate)
 
-    print(f"Epsilon: {eps}, Specific Attack Success Rate: {specific_attack_success_rate:.2f}%")
-    print(f"Epsilon: {eps}, Unspecific Attack Success Rate: {unspecific_attack_success_rate:.2f}%")
+    print(f"Epsilon: {eps}, EOT Specific Attack Success Rate: {specific_attack_success_rate:.2f}%")
+    print(f"Epsilon: {eps}, EOT Unspecific Attack Success Rate: {unspecific_attack_success_rate:.2f}%")
 
 # Plot success rate vs epsilon
 plt.figure(figsize=(8, 6))
-plt.plot(epsilons, specific_attack_success_rates, label="Specific Attack", marker='o', color='blue')
-plt.plot(epsilons, unspecific_attack_success_rates, label="Unspecific Attack", marker='o', color='red')
+plt.plot(epsilons, specific_attack_success_rates, label="EOT Specific Attack", marker='o', color='blue')
+plt.plot(epsilons, unspecific_attack_success_rates, label="EOT Unspecific Attack", marker='o', color='red')
 plt.title("Adversarial Attack Success Rate vs Epsilon")
 plt.xlabel("Epsilon")
 plt.ylabel("Success Rate (%)")
 plt.legend()
 plt.grid(True)
-plt.savefig(os.path.join(output_dir, "attack_success_vs_epsilon.png"))
+plt.savefig(os.path.join(output_dir, "eot_attack_success_vs_epsilon.png"))
 plt.close()
 
-# Generate a table of top 5 probabilities for each epsilon
-fig, ax = plt.subplots(2, 10, figsize=(20, 6))  # 2 rows, 10 columns (for each epsilon)
-
-for j, eps in enumerate(epsilons):
-    for i, attack_type in enumerate(["specific", "unspecific"]):
-        top5_probs = top5_probs_table[j][0][attack_type]  # First image only
-        prob_text = "\n".join([f"{idx}: {prob*100:.2f}%" for prob, idx in top5_probs])
-        ax[i, j].text(0.5, 0.5, prob_text, fontsize=10, verticalalignment='center', horizontalalignment='center')
-        ax[i, j].set_title(f"Eps = {eps:.3f}")
-        ax[i, j].axis('off')
-
-plt.suptitle("Top 5 Probabilities for Specific and Unspecific Attacks across Epsilons")
-plt.tight_layout()
-plt.savefig(os.path.join(output_dir, "top5_probs_table.png"))
-plt.close()
