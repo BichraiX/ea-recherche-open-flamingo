@@ -23,7 +23,7 @@ num_iter = 11
 
 # Download the CIFAR-100 dataset and pick consistent images
 cifar100 = CIFAR100(root=os.path.expanduser("~/.cache"), download=True, train=False)
-n_samples = 50  # Fixed number of images
+n_samples = 100  # Fixed number of images
 fixed_indices = list(range(n_samples))  # Use first 50 images (fixed)
 images_and_labels = [(cifar100[i][0], cifar100[i][1]) for i in fixed_indices]
 target_class_id = 0
@@ -34,7 +34,7 @@ eps = 8/255
 sigmas = torch.tensor([i / 5 for i in range(1, 16)])
 log_sigmas_100 = torch.logspace(start=torch.log10(torch.tensor(0.001)),
                             end=torch.log10(torch.tensor(1000.0)),
-                            steps=40)
+                            steps=15)
 
 specific_attack_success_rates = []
 denoised_specific_attack_success_rates = []
