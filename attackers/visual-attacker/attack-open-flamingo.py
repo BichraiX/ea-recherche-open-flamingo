@@ -60,11 +60,11 @@ for batch_idx in range(0, n_images, images_per_file):
         target = torch.tensor([label]).to(device)
 
         # Perform specific attack
-        adv_image_specific, losses_specific = attacker.attack_specific(image_input, target, num_iter=num_iter)
+        adv_image_specific, losses_specific = attacker.eot_attack_specific(image_input, target, num_iter=num_iter)
 
         # Perform unspecific attack (using the model's original output as the target to push away from)
         model_output = torch.tensor([cifar100.classes.index(attacker.generate_prompt(image_input))]).to(device)
-        adv_image_unspecific, losses_unspecific = attacker.attack_unspecific(image_input, model_output, num_iter=num_iter)
+        adv_image_unspecific, losses_unspecific = attacker.eot_attack_unspecific(image_input, model_output, num_iter=num_iter)
 
         # Prepare the adversarial image for OpenFlamingo model input
         adv_image_specific_for_flamingo = adv_image_specific.unsqueeze(1).unsqueeze(0).to(device)
