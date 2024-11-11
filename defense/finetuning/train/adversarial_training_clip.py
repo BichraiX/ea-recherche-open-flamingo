@@ -281,18 +281,20 @@ class ClipVisionModel(torch.nn.Module):
 
 
 class ComputeLossWrapper:
-    def __init__(self, embedding_orig, embedding_text_labels_norm, reduction='mean', loss=None,
+    def __init__(self, embedding_orig, embedding_text_labels_norm, model, orthogonal_training = False,reduction='mean', loss=None,
                  logit_scale=100.):
         self.embedding_orig = embedding_orig
         self.embedding_text_labels_norm = embedding_text_labels_norm
         self.reduction = reduction
         self.loss_str = loss
         self.logit_scale = logit_scale
+        self.model = model
+        self.orthogonal_training = orthogonal_training
 
     def __call__(self, embedding, targets):
         return compute_loss(
             loss_str=self.loss_str, embedding=embedding, targets=targets,
-            embedding_orig=self.embedding_orig, logit_scale=self.logit_scale,
+            embedding_orig=self.embedding_orig, logit_scale=self.logit_scale, model = self.model, orthogonal_training = self.orthogonal_training,
             embedding_text_labels_norm=self.embedding_text_labels_norm, reduction=self.reduction
             )
 
@@ -321,7 +323,7 @@ def train_one_epoch(
 
         # loss for the attack
         loss_inner_wrapper = ComputeLossWrapper(
-            embedding_orig, embedding_text_labels_norm,
+            embedding_orig, embedding_text_labels_norm, model, orthogonal_training = True,
             reduction='none' if args.attack == 'apgd' else 'mean', loss=args.inner_loss,
             logit_scale=100.
             )
@@ -364,7 +366,7 @@ def train_one_epoch(
         if args.clean_weight > 0.:
             loss_clean = compute_loss(
                 loss_str=args.loss_clean, embedding=embedding_clean, targets=targets,
-                embedding_orig=embedding_orig, logit_scale=100., embedding_text_labels_norm=None
+                embedding_orig=embedding_orig, logit_scale=100., model = model , orthogonal_training = True, embedding_text_labels_norm=None
                 )
         else:
             loss_clean = 0.
@@ -379,7 +381,7 @@ def train_one_epoch(
         loss = compute_loss(
             loss_str=args.loss, embedding=embedding_adv, targets=targets,
             embedding_orig=embedding_orig if not args.trades else embedding_clean_no_grad,
-            logit_scale=100., embedding_text_labels_norm=embedding_text_labels_norm
+            logit_scale=100., model = model , orthogonal_training = True, embedding_text_labels_norm=embedding_text_labels_norm
             )
         loss_total = args.clean_weight * loss_clean + (1 - args.clean_weight) * loss
         loss_total.backward()
@@ -416,7 +418,7 @@ def train_one_epoch(
             data_eval, targets_eval = next(iter(dataloader_eval))
             data_eval, targets_eval = data_eval.cuda(), targets_eval.cuda()
             loss_eval_wrapper = ComputeLossWrapper(
-                embedding_orig=None, embedding_text_labels_norm=embedding_text_labels_norm,
+                embedding_orig=None, embedding_text_labels_norm=embedding_text_labels_norm, model = model, orthogonal_training = True,
                 reduction='none', loss='ce', logit_scale=100.
                 )
             data_eval_adv = apgd(
@@ -516,16 +518,21 @@ def compute_acc(logits, targets):
     return acc
 
 
-def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale,
+def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, model, orthogonal_training = False,
                  embedding_text_labels_norm=None, reduction='mean'):
+    if orthogonal_training:
+        tuner = OrthogonalFineTuner(model)
+        orth_reg = tuner.orthogonalize_step()
+    else:
+        orth_reg = 0
     if loss_str == 'l2':
-        loss = l2(out=embedding, targets=embedding_orig, reduction=reduction)
+        loss = l2(out=embedding, targets=embedding_orig, reduction=reduction) + orth_reg
     elif loss_str == 'ce':
         loss = ce(
             out=embedding @ (logit_scale * embedding_text_labels_norm),
             targets=targets,
             reduction=reduction
-        )
+        ) + orth_reg
     else:
         raise ValueError(f'loss {loss_str} not supported')
     return loss
