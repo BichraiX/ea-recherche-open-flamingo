@@ -5,8 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.datasets import CIFAR100
 from torchvision.transforms import ToPILImage
-from visual_attacker import Attacker
-from defense import RandomizedSmoothing
+from attackers.visual_attacker.visual_attacker import Attacker
+from defense.defense import RandomizedSmoothing
 import time
 
 def normalize(images):

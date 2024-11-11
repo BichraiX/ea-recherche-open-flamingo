@@ -8,7 +8,7 @@ import shutil
 import time
 import string
 import random
-
+from defense.orthogonalfinetuning import OrthogonalFineTuner
 import numpy as np
 import open_clip
 import torch

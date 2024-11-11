@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='train',
+    name='ea',
     version='0.1',
-    packages=find_packages(include=['defense', 'defense.*']), 
+    packages=find_packages(), 
 )
