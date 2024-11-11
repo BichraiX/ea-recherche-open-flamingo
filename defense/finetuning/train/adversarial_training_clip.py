@@ -16,7 +16,7 @@ torch.cuda.empty_cache()
 
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from training.scheduler import cosine_lr
+from CLIP_benchmark.clip_benchmark.metrics.linear_probe import cosine_lr
 from torchvision import transforms
 from open_flamingo.eval.classification_utils import IMAGENET_1K_CLASS_ID_TO_LABEL
 from train.pgd_train import pgd
