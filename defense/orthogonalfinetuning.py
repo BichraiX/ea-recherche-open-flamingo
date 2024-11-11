@@ -36,7 +36,7 @@ class OrthogonalFineTuner:
 
         # Store the original weights of ln_final
         for name, param in self.model.named_parameters():
-            if name == 'transformer.resblocks.9.attn.in_proj_weight':
+            if name == 'model.transformer.resblocks.11.mlp.c_proj.weight':
                 self.W0 = (param.clone()).to(torch.float32)
 
         # Initialize anti-symmetric matrix C
@@ -48,15 +48,39 @@ class OrthogonalFineTuner:
         # List to store losses
         self.losses = []
 
-    def compute_hyperspherical_energy(self, W):
+    
+    def compute_hyperspherical_energy(self, W, num_neighbors=10):
+        # Normalize W along columns
         W_normalized = W / W.norm(dim=0, keepdim=True)
-        energy = sum((W_normalized[:, i] - W_normalized[:, j]).norm()**-1 for i in range(W.shape[1]) for j in range(i + 1, W.shape[1]))
+        num_vectors = W.shape[1]
+        energy = 0.0
+
+        # Compute the pairwise dot products
+        similarity_matrix = W_normalized.T @ W_normalized  # Shape: (num_vectors, num_vectors)
+
+        # Convert dot products to Euclidean distances efficiently
+        distances = 2 - 2 * similarity_matrix  # Distance formula for normalized vectors
+
+        # Add a small epsilon to avoid division by zero in the next step
+        distances += torch.eye(num_vectors, device=W.device) * 1e-6  # Ensures self-distance is non-zero
+
+        # Loop over each vector to accumulate energy based on nearest neighbors
+        for i in range(num_vectors):
+            # Get distances for the i-th vector to all others
+            vector_distances = distances[i]
+            
+            # Sort and select the nearest distances (excluding itself)
+            nearest_distances, _ = torch.topk(1.0 / vector_distances, k=num_neighbors + 1)
+            
+            # Accumulate energy, ignoring the first item (distance to itself)
+            energy += torch.sum(nearest_distances[1:])
+
+        # Scale energy by 1 / num_vectors to maintain proportionality and gradient scale
+        energy /= num_vectors
         return energy
 
-    def orthogonalize_step(self):
-        #for name, param in self.model.named_parameters():
-         #   print(name)  # Afficher le nom de la couche
 
+    def orthogonalize_step(self):
         # Compute the orthogonal matrix A from the anti-symmetric matrix C
         I = torch.eye(self.C.shape[0], device=self.device)
         A = (I + self.C).inverse() @ (I - self.C)
@@ -96,35 +120,3 @@ class OrthogonalFineTuner:
         
         return self.model
 
-# Chargement du modèle CLIP
-model, _ = clip.load("ViT-B/32", device="cuda")
-
-for name,param in model.named_parameters():
-    if name=='transformer.resblocks.9.attn.in_proj_weight':
-        old_weights = param.data
-# Créer une instance du fine-tuner orthogonal
-fine_tuner = OrthogonalFineTuner(model)
-
-save_path = './output'
-if not os.path.exists(save_path):
-    os.makedirs(save_path)
-
-# Load the CLIP model
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load("ViT-B/32", device=device)
-model = fine_tuner.finetune()
-
-for name,param in model.named_parameters():
-    if name=='transformer.resblocks.9.attn.in_proj_weight':
-        print(old_weights)
-        print(param.data)
-        print("The weights have changed : ", old_weights == param.data)
-# Plot the loss
-plt.figure(figsize=(10, 5))
-plt.plot(fine_tuner.losses, label='Loss', color='blue')
-plt.title('Loss during Fine-Tuning')
-plt.xlabel('Steps')
-plt.ylabel('Loss')
-plt.legend()
-plt.grid()
-plt.show()
