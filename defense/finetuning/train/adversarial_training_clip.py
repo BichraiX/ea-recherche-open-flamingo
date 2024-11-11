@@ -28,6 +28,9 @@ from open_flamingo.eval.models.utils import unwrap_model
 from train.utils import str2bool
 
 import argparse
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--clip_model_name', type=str, default='ViT-L-14', help='ViT-L-14, ViT-B-32')
