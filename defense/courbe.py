@@ -20,7 +20,7 @@ model, preprocess = clip.load("ViT-B/32", device=device)
 
 # Download and load the CIFAR-100 test set
 cifar100 = CIFAR100(root=os.path.expanduser("~/.cache"), download=True, train=False)
-n_samples = 1
+n_samples = 5
 fixed_indices = list(range(n_samples)) 
 images_and_labels = [(cifar100[i][0], cifar100[i][1]) for i in fixed_indices]
 
@@ -56,13 +56,10 @@ def evaluate_with_attack_time(model, images_and_labels, cifar100, device, n_samp
             start_time = time.time()
             # Defense using Randomized Smoothing
             defense = RandomizedSmoothing(model, cifar100.classes, num_samples=100, sigma=sigma, preprocess = preprocess)
-    
-            result = defense.predict(image_input, False)
-
-            prediction, _ = result
-            
-            print(cifar100.classes[prediction])
-            print(cifar100.classes[label])
+            prediction, _  = defense.predict(image_input, False)
+            print("Model prediction after noise: ",cifar100.classes[prediction])
+            print("Model prediction before noise: ", res)
+            print("Ground truth label : ",cifar100.classes[label])
             if prediction == label:
                 correct_predictions += 1
             times.append(time.time()-start_time)
@@ -74,7 +71,7 @@ def evaluate_with_attack_time(model, images_and_labels, cifar100, device, n_samp
         # Stop measuring the time and calculate elapsed time
         elapsed_time = np.mean(np.array(times))
         execution_times.append(elapsed_time)
-        print ( f"CLIP accuracy :{clip_count: .2f}")
+        print ( f"CLIP accuracy :{clip_count/n_samples: .2f}")
         print(f"Sigma: {sigma}, Accuracy: {accuracy:.2f}%, Time: {elapsed_time:.2f}s")
 
 

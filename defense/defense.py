@@ -43,7 +43,6 @@ class RandomizedSmoothing:
         
         for _ in range(self.num_samples):
             noise = (torch.randn_like(x) * self.sigma).to(self.device)
-        
             #x = denormalize(x).clone().to(self.device)
             #noise.data = (noise.data + x.data).clamp(0, 1) - x.data
             #noisy_image= normalize(x + noise)
@@ -58,9 +57,7 @@ class RandomizedSmoothing:
 
 
             with torch.no_grad():
-                processed_image = self.preprocess(to_pil(noisy_image[0])).unsqueeze(0).to(self.device)
-            
-                logits_per_image, _ = self.model(processed_image, self.text)  
+                logits_per_image, _ = self.model(noisy_image, self.text)  
                 
             probs = torch.nn.functional.softmax(logits_per_image, dim=-1)
             
@@ -97,7 +94,7 @@ class RandomizedSmoothing:
                 return predicted_class, R
             return None
         predicted_class = counts.argmax()
-
+        
                 # Calculate certified radius
         pA = nA / (nA+nB)
         R = self.sigma * (np.sqrt(2) * (np.sqrt(nA + nB) * np.abs(pA - 0.5)))
