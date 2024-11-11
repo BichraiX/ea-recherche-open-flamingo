@@ -4,7 +4,9 @@ import numpy as np
 from tqdm import tqdm
 import scipy.stats
 from statsmodels.stats.proportion import proportion_confint
-
+from torchvision.transforms import ToPILImage
+import matplotlib.pyplot as plt
+import os
 
 def normalize(images):
     mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).cuda()
@@ -20,15 +22,12 @@ def denormalize(images):
     images = images + mean[None, :, None, None]
     return images
     
-def generate_prompt(model,classes,image,text):
-    with torch.no_grad():
-        logits_per_image, logits_per_text = model(image, text)
-    return classes[logits_per_image.argmax().item()]
 
 
 class RandomizedSmoothing:
-    def __init__(self, model, classes, num_samples, sigma):
+    def __init__(self, model, classes, num_samples, sigma,preprocess):
         self.model = model
+        self.preprocess= preprocess
         self.classes = classes
         self.num_samples = num_samples
         self.sigma = sigma
@@ -37,22 +36,36 @@ class RandomizedSmoothing:
         self.model.eval()
         self.model.requires_grad_(False)
 
+
     def sample_under_noise(self, x):
         counts = np.zeros(len(self.classes))
         x=x.to(self.device)
         
-
         for _ in range(self.num_samples):
             noise = (torch.randn_like(x) * self.sigma).to(self.device)
-            noisy_image = (x + noise).to(self.device)
-            noisy_image = torch.clamp(noisy_image, 0, 1)
-            noisy_image = normalize(noisy_image)
+        
+            #x = denormalize(x).clone().to(self.device)
+            #noise.data = (noise.data + x.data).clamp(0, 1) - x.data
+            #noisy_image= normalize(x + noise)
+
+            #noise = (torch.randn_like(x) * self.sigma).to(self.device)
+            #noisy_image = (x + noise).to(self.device)
+            #noisy_image = torch.clamp(noisy_image, 0, 1)
+            #noisy_image = normalize(noisy_image)
+            noisy_image = x + noise
+            to_pil = ToPILImage()
+
+
+
             with torch.no_grad():
-                logits_per_image, _ = self.model(noisy_image, self.text)  
+                processed_image = self.preprocess(to_pil(noisy_image[0])).unsqueeze(0).to(self.device)
+            
+                logits_per_image, _ = self.model(processed_image, self.text)  
+                
             probs = torch.nn.functional.softmax(logits_per_image, dim=-1)
+            
             pred = probs.argmax().item()
             counts[pred] += 1
-
         return counts
 
     @staticmethod
