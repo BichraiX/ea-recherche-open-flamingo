@@ -35,15 +35,22 @@ class OrthogonalFineTuner:
         self.model.requires_grad_(False)
 
         # Store the original weights of ln_final
-        for name, param in self.model.named_parameters():
-            if name == 'model.transformer.resblocks.11.mlp.c_proj.weight':
-                self.W0 = (param.clone()).to(torch.float32)
+        self.proj_weights = {}
+        self.C_matrices = {}
 
-        # Initialize anti-symmetric matrix C
-        self.C = torch.zeros(self.W0.shape[0], self.W0.shape[0], device=self.device, requires_grad=True)
-        
+        # Loop through all parameters in the model
+        for name, param in self.model.named_parameters():
+            if "proj.weight" in name:
+                # Store the weight in proj_weights dictionary
+                self.proj_weights[name] = param.clone().to(torch.float32)
+                
+                # Initialize and store a corresponding anti-symmetric matrix C
+                # with the same shape as the weight
+                C_matrix = torch.zeros(param.shape[0], param.shape[0], device=self.device, requires_grad=True)
+                self.C_matrices[name] = C_matrix
+                
         # Optimizer for C
-        self.optimizer = torch.optim.Adam([self.C], lr=self.lr)
+        self.optimizer = torch.optim.Adam(self.C_matrices.values(), lr=self.lr)
 
         # List to store losses
         self.losses = []
@@ -81,23 +88,35 @@ class OrthogonalFineTuner:
 
 
     def orthogonalize_step(self):
-        # Compute the orthogonal matrix A from the anti-symmetric matrix C
-        I = torch.eye(self.C.shape[0], device=self.device)
-        A = (I + self.C).inverse() @ (I - self.C)
-        # Apply the orthogonal transformation to ln_final weights
-        new_ln_final_weights = (A @ self.W0)
-
-        # Update ln_final weights with the new transformed weights
-        for name, param in self.model.named_parameters():
-            if name == 'transformer.resblocks.9.attn.in_proj_weight':
-                param.data = new_ln_final_weights.to(torch.float16).data
+        # Initialize a variable to accumulate the total loss over all weights
+        total_loss = 0.0
         
-        # Compute the loss
-        hyperspherical_energy = self.compute_hyperspherical_energy(new_ln_final_weights)
-        pretrained_energy = self.compute_hyperspherical_energy(self.W0)
-        loss = torch.abs(hyperspherical_energy - pretrained_energy)
+        # Iterate over all weights and corresponding C matrices
+        for name, W0 in self.proj_weights.items():
+            # Corresponding anti-symmetric matrix C for this weight
+            C = self.C_matrices[name]
+            
+            # Compute the orthogonal matrix A from the anti-symmetric matrix C
+            I = torch.eye(C.shape[0], device=self.device)
+            A = (I + C).inverse() @ (I - C)
+            
+            # Apply the orthogonal transformation to the current weight W0
+            new_weights = A @ W0
 
-        return loss
+            # Update the model's weights with the new transformed weights
+            # for model_name, param in self.model.named_parameters():
+                # if model_name == name:
+                    # param.data = new_weights.to(torch.float16).data
+
+            # Compute the loss for this weight
+            hyperspherical_energy = self.compute_hyperspherical_energy(new_weights)
+            pretrained_energy = self.compute_hyperspherical_energy(W0)
+            loss = torch.abs(hyperspherical_energy - pretrained_energy)
+            
+            # Accumulate the loss
+            total_loss += loss
+
+        return total_loss
 
     def finetune(self):
         # Fine-tuning loop
