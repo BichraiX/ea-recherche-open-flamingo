@@ -51,7 +51,7 @@ class Attacker:
     def generate_prompt_v2(self,image):
     # for finetuned model
         with torch.no_grad():
-            logits_per_image = self.model(image, self.text)
+            logits_per_image = self.model(image, self.text)[0]
             probs = torch.nn.functional.softmax(logits_per_image, dim=-1)
         return self.classes[probs.argmax().item()]
 
@@ -116,7 +116,7 @@ class Attacker:
 
         for t in tqdm(range(num_iter)):
             x_adv = normalize(x + adv_noise)
-            logits_per_image = self.model(x_adv, self.text)            
+            logits_per_image = self.model(x_adv, self.text)[0]         
             target_loss = torch.nn.functional.cross_entropy(logits_per_image,target.to(self.device))
             loss_values.append(target_loss.item())
             
@@ -133,7 +133,7 @@ class Attacker:
 
                 with torch.no_grad():
                     print('>>> Sample Outputs')
-                    print(self.generate_prompt_v2(x_adv))
+                    # print(self.generate_prompt_v2(x_adv))
                 adv_img_prompt = denormalize(x_adv).detach().cpu()
         return adv_img_prompt, loss_values
     

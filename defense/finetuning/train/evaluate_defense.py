@@ -9,9 +9,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 
-sys.path.append(os.path.abspath('../test_defense_denoising'))
-
-from visual_attacker import Attacker
+from attackers.visual_attacker.visual_attacker import Attacker
 
 import json
 import time
@@ -99,7 +97,7 @@ for images, labels in data_loader:
 
     target = torch.tensor([target_class_id]*10).to(device)  # Set target class for specific attack
     # Perform specific and unspecific attacks
-    adv_img_specific, _ = attacker.attack_specific_v2(images, target, num_iter=num_iter)
+    adv_img_specific, _ = attacker.attack_specific_vfinetuned(images, target, num_iter=num_iter)
     adv_img_specific.to(device)
     model_orig.to(device)
 
