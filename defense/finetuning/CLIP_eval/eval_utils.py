@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from torchvision.transforms import transforms
 
-from open_flamingo.eval.classification_utils import IMAGENET_1K_CLASS_ID_TO_LABEL
+# from open_flamingo.eval.classification_utils import IMAGENET_1K_CLASS_ID_TO_LABEL
 
 
 
@@ -60,29 +60,29 @@ def load_clip_model(clip_model_name, pretrained, beta=0.):
     normalizer = image_processor.transforms[-1]
     return model, preprocessor_no_norm, normalizer
 
-@torch.no_grad()
-def get_text_embeddings(model, dataset, texts):
-    assert not (dataset and texts)
-    if dataset:
-        assert dataset == 'imagenet'
-    if dataset == 'imagenet':
-        template = 'This is a photo of a {}'
-        texts = [template.format(c) for c in IMAGENET_1K_CLASS_ID_TO_LABEL.values()]
-        text_tokens = open_clip.tokenize(texts)
-    elif texts:
-        text_tokens = open_clip.tokenize(texts)
-    embedding_text_labels_norm = []
-    chunk_size = 500
-    for i in range(0, len(text_tokens), chunk_size):
-        el = text_tokens[i:i+chunk_size]
-        embedding_text_labels_norm.append(
-            model.model.encode_text(el.cuda(), normalize=True).detach().cpu()
-        )
-    embedding_text_labels_norm = torch.cat(embedding_text_labels_norm).T
-    if dataset == 'imagenet':
-        assert (embedding_text_labels_norm.shape == (512, 1000)
-                or embedding_text_labels_norm.shape == (768, 1000)), embedding_text_labels_norm.shape
-    return embedding_text_labels_norm
+# @torch.no_grad()
+# def get_text_embeddings(model, dataset, texts):
+#     assert not (dataset and texts)
+#     if dataset:
+#         assert dataset == 'imagenet'
+#     if dataset == 'imagenet':
+#         template = 'This is a photo of a {}'
+#         texts = [template.format(c) for c in IMAGENET_1K_CLASS_ID_TO_LABEL.values()]
+#         text_tokens = open_clip.tokenize(texts)
+#     elif texts:
+#         text_tokens = open_clip.tokenize(texts)
+#     embedding_text_labels_norm = []
+#     chunk_size = 500
+#     for i in range(0, len(text_tokens), chunk_size):
+#         el = text_tokens[i:i+chunk_size]
+#         embedding_text_labels_norm.append(
+#             model.model.encode_text(el.cuda(), normalize=True).detach().cpu()
+#         )
+#     embedding_text_labels_norm = torch.cat(embedding_text_labels_norm).T
+#     if dataset == 'imagenet':
+#         assert (embedding_text_labels_norm.shape == (512, 1000)
+#                 or embedding_text_labels_norm.shape == (768, 1000)), embedding_text_labels_norm.shape
+#     return embedding_text_labels_norm
 
 
 @torch.inference_mode()
