@@ -9,28 +9,12 @@ from attackers.visual_attacker.visual_attacker import Attacker
 from defense.defense import RandomizedSmoothing
 import time
 
-def normalize(images):
-    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).cuda()
-    std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).cuda()
-    images = images - mean[None, :, None, None]
-    images = images / std[None, :, None, None]
-    return images
-
-def denormalize(images):
-    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).cuda()
-    std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).cuda()
-    images = images * std[None, :, None, None]
-    images = images + mean[None, :, None, None]
-    return images
-
 class OrthogonalFineTuner:
     def __init__(self, model, device='cuda', lr=1e-4, num_steps=100):
-        self.model = model
+        self.model = model.to(device)
         self.device = device
         self.lr = lr
         self.num_steps = num_steps
-        
-        # Set the model to evaluation mode and freeze weights
 
         self.proj_weights = {}
         self.C_matrices = {}
@@ -46,20 +30,21 @@ class OrthogonalFineTuner:
         for name, param in self.model.named_parameters():
             if name in layers_to_finetune:
                 self.proj_weights[name] = param.clone().to(torch.float32).to(self.device)
-                C_matrix = torch.zeros(param.shape[0], param.shape[0], device=self.device, requires_grad=True)
+                random_matrix = torch.randn(param.shape[0], param.shape[0], device=self.device, requires_grad=True)
+                C_matrix = (random_matrix - random_matrix.T) / 2 
+                C_matrix = C_matrix.detach().requires_grad_(True)
                 self.C_matrices[name] = C_matrix
         self.optimizer = torch.optim.Adam(self.C_matrices.values(), lr=self.lr)
         self.losses = []
 
-    
     def compute_hyperspherical_energy(self, W, num_neighbors=10):
-        # Normalize W along columns
+        W = W.to(self.device)  # Ensure W is on the correct device
         W_normalized = W / W.norm(dim=0, keepdim=True)
         num_vectors = W.shape[1]
-        energy = 0.0
+        energy = torch.tensor(0.0, device=self.device)  # Initialize on device
         similarity_matrix = W_normalized.T @ W_normalized  # Shape: (num_vectors, num_vectors)
         distances = 2 - 2 * similarity_matrix  # Distance formula for normalized vectors
-        distances += torch.eye(num_vectors, device=W.device) * 1e-6  # Ensures self-distance is non-zero
+        distances += torch.eye(num_vectors, device=self.device) * 1e-6  # Ensures self-distance is non-zero
         for i in range(num_vectors):
             vector_distances = distances[i]
             nearest_distances, _ = torch.topk(1.0 / vector_distances, k=num_neighbors + 1)
@@ -67,35 +52,35 @@ class OrthogonalFineTuner:
         energy /= num_vectors
         return energy
 
-
     def orthogonalize_step(self):
-        total_loss = 0.0
+        total_loss = torch.tensor(0.0, device=self.device)  # Initialize on device
         for name, W0 in self.proj_weights.items():
+            W0 = W0.to(self.device)  # Ensure W0 is on the correct device
             C = self.C_matrices[name]
             I = torch.eye(C.shape[0], device=self.device)
             A = (I + C).inverse() @ (I - C)
-            
             new_weights = A @ W0
 
             # Update the model's weights with the new transformed weights
+            # Uncomment if you want to update weights directly in the model
             # for model_name, param in self.model.named_parameters():
-                # if model_name == name:
-                    # param.data = new_weights.to(torch.float16).data
+            #     if model_name == name:
+            #         param.data = new_weights.to(torch.float16).data
 
             hyperspherical_energy = self.compute_hyperspherical_energy(new_weights)
             pretrained_energy = self.compute_hyperspherical_energy(W0)
-            loss = torch.abs(hyperspherical_energy - pretrained_energy)
+            loss = torch.abs(hyperspherical_energy - pretrained_energy).to(self.device)
             total_loss += loss
 
-        return total_loss/self.num_layers
+        return total_loss / self.num_layers
 
-    def finetune(self,loss):
+    def finetune(self, loss):
         # Fine-tuning loop
         for step in range(self.num_steps):
             self.optimizer.zero_grad()
             
-            # Forward pass and compute loss
-            loss = loss.to(torch.float32).requires_grad_(True)
+            # Ensure the loss is on the correct device
+            loss = loss.to(torch.float32).to(self.device).requires_grad_(True)
             
             # Backward and update C
             loss.backward()
@@ -105,4 +90,3 @@ class OrthogonalFineTuner:
             self.losses.append(loss.item())
         
         return self.model
-

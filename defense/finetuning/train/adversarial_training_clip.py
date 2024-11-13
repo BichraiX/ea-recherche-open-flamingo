@@ -213,8 +213,8 @@ def main(args):
     model.cuda()
 
     # set optimizer (all params have requires_grad=True)
-    params = unwrap_model(model).model.parameters()
-
+    params = list(unwrap_model(model).model.parameters())
+    params+= list(tuner.C_matrices.values())
     if args.opt == 'adamw':
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
     elif args.opt == 'sgd':
@@ -386,20 +386,9 @@ def train_one_epoch(
             logit_scale=100., tuner = tuner, orthogonal_training = True,embedding_text_labels_norm=embedding_text_labels_norm
             )
         loss_total = args.clean_weight * loss_clean + (1 - args.clean_weight) * loss
-        for param_group in optimizer.param_groups:
-            for param in param_group['params']:
-                    print(f"Device for parameter: {param.device}")
-        for param_group in tuner.optimizer.param_groups:
-            for param in param_group['params']:
-                    print(f"Device for parameters in tuner: {param.device}")
         loss_total.backward()
-        for param_group in optimizer.param_groups:
-            for param in param_group['params']:
-                    print(f"Gradient norm for parameter: {param.grad.norm()}")
         optimizer.step()
         optimizer.zero_grad()
-        tuner.optimizer.step()
-        tuner.optimizer.zero_grad()
         step_total += 1
         scheduler(step_total)
 
@@ -535,7 +524,6 @@ def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, tune
                  embedding_text_labels_norm=None, reduction='mean'):
     if tuner and orthogonal_training:
         orth_reg = tuner.orthogonalize_step()
-        print("orth_reg",orth_reg)
     else:
         orth_reg = 0
     if loss_str == 'l2':
