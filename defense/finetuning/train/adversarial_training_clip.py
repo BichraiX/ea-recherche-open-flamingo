@@ -8,7 +8,7 @@ import shutil
 import time
 import string
 import random
-from defense.orthogonalfinetuning import OrthogonalFineTuner
+
 import numpy as np
 import open_clip
 import torch
@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from CLIP_benchmark.clip_benchmark.metrics.linear_probe import cosine_lr
 from torchvision import transforms
+from defense.orthogonalfinetuning import OrthogonalFineTuner
 from open_flamingo.eval.classification_utils import IMAGENET_1K_CLASS_ID_TO_LABEL
 from train.pgd_train import pgd
 from train.apgd_train import apgd_train as apgd
@@ -28,9 +29,6 @@ from open_flamingo.eval.models.utils import unwrap_model
 from train.utils import str2bool
 
 import argparse
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--clip_model_name', type=str, default='ViT-L-14', help='ViT-L-14, ViT-B-32')
@@ -209,6 +207,7 @@ def main(args):
     model_orig.cuda()
 
     model = ClipVisionModel(model=model.visual, args=args, normalize=normalize)
+    tuner = OrthogonalFineTuner(model, device = main_device)
     if num_gpus > 1:
         model = torch.nn.DataParallel(model)
     model.cuda()
@@ -244,6 +243,7 @@ def main(args):
     while step_total < args.steps:
         step_total = train_one_epoch(
             step_total,
+            tuner = tuner,
             model=model,
             model_orig=model_orig,
             dataloader=dataloader,
@@ -284,25 +284,24 @@ class ClipVisionModel(torch.nn.Module):
 
 
 class ComputeLossWrapper:
-    def __init__(self, embedding_orig, embedding_text_labels_norm, model, orthogonal_training = False,reduction='mean', loss=None,
+    def __init__(self, embedding_orig, embedding_text_labels_norm, tuner = None, orthogonal_training = False,reduction='mean', loss=None,
                  logit_scale=100.):
         self.embedding_orig = embedding_orig
         self.embedding_text_labels_norm = embedding_text_labels_norm
         self.reduction = reduction
         self.loss_str = loss
         self.logit_scale = logit_scale
-        self.model = model
+        self.tuner = tuner
         self.orthogonal_training = orthogonal_training
-
     def __call__(self, embedding, targets):
         return compute_loss(
             loss_str=self.loss_str, embedding=embedding, targets=targets,
-            embedding_orig=self.embedding_orig, logit_scale=self.logit_scale, model = self.model, orthogonal_training = self.orthogonal_training,
+            embedding_orig=self.embedding_orig, logit_scale=self.logit_scale, tuner = self.tuner, orthogonal_training = self.orthogonal_training,
             embedding_text_labels_norm=self.embedding_text_labels_norm, reduction=self.reduction
             )
 
 def train_one_epoch(
-        step_total, model, model_orig, dataloader, optimizer, scheduler, normalize,
+        step_total, tuner, model, model_orig, dataloader, optimizer, scheduler, normalize,
         embedding_text_labels_norm, args, epoch, dataloader_eval=None
 ):
     model_orig.eval()
@@ -326,8 +325,8 @@ def train_one_epoch(
 
         # loss for the attack
         loss_inner_wrapper = ComputeLossWrapper(
-            embedding_orig, embedding_text_labels_norm, model, orthogonal_training = True,
-            reduction='none' if args.attack == 'apgd' else 'mean', loss=args.inner_loss,
+            embedding_orig, embedding_text_labels_norm,
+            reduction='none' if args.attack == 'apgd' else 'mean', loss=args.inner_loss, tuner = tuner, orthogonal_training = False,
             logit_scale=100.
             )
         model.eval()
@@ -369,7 +368,7 @@ def train_one_epoch(
         if args.clean_weight > 0.:
             loss_clean = compute_loss(
                 loss_str=args.loss_clean, embedding=embedding_clean, targets=targets,
-                embedding_orig=embedding_orig, logit_scale=100., model = model , orthogonal_training = True, embedding_text_labels_norm=None
+                embedding_orig=embedding_orig, logit_scale=100., tuner = tuner, orthogonal_training = True, embedding_text_labels_norm=None
                 )
         else:
             loss_clean = 0.
@@ -384,12 +383,23 @@ def train_one_epoch(
         loss = compute_loss(
             loss_str=args.loss, embedding=embedding_adv, targets=targets,
             embedding_orig=embedding_orig if not args.trades else embedding_clean_no_grad,
-            logit_scale=100., model = model , orthogonal_training = True, embedding_text_labels_norm=embedding_text_labels_norm
+            logit_scale=100., tuner = tuner, orthogonal_training = True,embedding_text_labels_norm=embedding_text_labels_norm
             )
         loss_total = args.clean_weight * loss_clean + (1 - args.clean_weight) * loss
+        for param_group in optimizer.param_groups:
+            for param in param_group['params']:
+                    print(f"Device for parameter: {param.device}")
+        for param_group in tuner.optimizer.param_groups:
+            for param in param_group['params']:
+                    print(f"Device for parameters in tuner: {param.device}")
         loss_total.backward()
+        for param_group in optimizer.param_groups:
+            for param in param_group['params']:
+                    print(f"Gradient norm for parameter: {param.grad.norm()}")
         optimizer.step()
         optimizer.zero_grad()
+        tuner.optimizer.step()
+        tuner.optimizer.zero_grad()
         step_total += 1
         scheduler(step_total)
 
@@ -421,7 +431,7 @@ def train_one_epoch(
             data_eval, targets_eval = next(iter(dataloader_eval))
             data_eval, targets_eval = data_eval.cuda(), targets_eval.cuda()
             loss_eval_wrapper = ComputeLossWrapper(
-                embedding_orig=None, embedding_text_labels_norm=embedding_text_labels_norm, model = model, orthogonal_training = True,
+                embedding_orig=None, embedding_text_labels_norm=embedding_text_labels_norm, tuner = tuner, orthogonal_training = True,
                 reduction='none', loss='ce', logit_scale=100.
                 )
             data_eval_adv = apgd(
@@ -521,11 +531,11 @@ def compute_acc(logits, targets):
     return acc
 
 
-def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, model, orthogonal_training = False,
+def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, tuner = None, orthogonal_training = False,
                  embedding_text_labels_norm=None, reduction='mean'):
-    if orthogonal_training:
-        tuner = OrthogonalFineTuner(model)
+    if tuner and orthogonal_training:
         orth_reg = tuner.orthogonalize_step()
+        print("orth_reg",orth_reg)
     else:
         orth_reg = 0
     if loss_str == 'l2':

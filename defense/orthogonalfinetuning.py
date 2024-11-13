@@ -31,28 +31,24 @@ class OrthogonalFineTuner:
         self.num_steps = num_steps
         
         # Set the model to evaluation mode and freeze weights
-        self.model.eval()
-        self.model.requires_grad_(False)
 
-        # Store the original weights of ln_final
         self.proj_weights = {}
         self.C_matrices = {}
-
-        # Loop through all parameters in the model
+        layers_to_finetune = [
+                "model.positional_embedding",        # Adds positional encoding to image patches
+                "model.proj",                        # Projects extracted features to embedding space
+                "model.transformer.resblocks.0.attn.in_proj_weight",  # Attention projection weight in the first transformer block
+                "model.transformer.resblocks.0.attn.out_proj.weight", # Output projection weight for attention in the first block
+                "model.transformer.resblocks.0.mlp.c_fc.weight",       # Fully connected layer weight in the first block’s MLP
+                "model.transformer.resblocks.0.mlp.c_proj.weight",
+            ]
+        self.num_layers = len(layers_to_finetune)
         for name, param in self.model.named_parameters():
-            if "proj.weight" in name:
-                # Store the weight in proj_weights dictionary
-                self.proj_weights[name] = param.clone().to(torch.float32)
-                
-                # Initialize and store a corresponding anti-symmetric matrix C
-                # with the same shape as the weight
+            if name in layers_to_finetune:
+                self.proj_weights[name] = param.clone().to(torch.float32).to(self.device)
                 C_matrix = torch.zeros(param.shape[0], param.shape[0], device=self.device, requires_grad=True)
                 self.C_matrices[name] = C_matrix
-                
-        # Optimizer for C
         self.optimizer = torch.optim.Adam(self.C_matrices.values(), lr=self.lr)
-
-        # List to store losses
         self.losses = []
 
     
@@ -61,46 +57,24 @@ class OrthogonalFineTuner:
         W_normalized = W / W.norm(dim=0, keepdim=True)
         num_vectors = W.shape[1]
         energy = 0.0
-
-        # Compute the pairwise dot products
         similarity_matrix = W_normalized.T @ W_normalized  # Shape: (num_vectors, num_vectors)
-
-        # Convert dot products to Euclidean distances efficiently
         distances = 2 - 2 * similarity_matrix  # Distance formula for normalized vectors
-
-        # Add a small epsilon to avoid division by zero in the next step
         distances += torch.eye(num_vectors, device=W.device) * 1e-6  # Ensures self-distance is non-zero
-
-        # Loop over each vector to accumulate energy based on nearest neighbors
         for i in range(num_vectors):
-            # Get distances for the i-th vector to all others
             vector_distances = distances[i]
-            
-            # Sort and select the nearest distances (excluding itself)
             nearest_distances, _ = torch.topk(1.0 / vector_distances, k=num_neighbors + 1)
-            
-            # Accumulate energy, ignoring the first item (distance to itself)
             energy += torch.sum(nearest_distances[1:])
-
-        # Scale energy by 1 / num_vectors to maintain proportionality and gradient scale
         energy /= num_vectors
         return energy
 
 
     def orthogonalize_step(self):
-        # Initialize a variable to accumulate the total loss over all weights
         total_loss = 0.0
-        
-        # Iterate over all weights and corresponding C matrices
         for name, W0 in self.proj_weights.items():
-            # Corresponding anti-symmetric matrix C for this weight
             C = self.C_matrices[name]
-            
-            # Compute the orthogonal matrix A from the anti-symmetric matrix C
             I = torch.eye(C.shape[0], device=self.device)
             A = (I + C).inverse() @ (I - C)
             
-            # Apply the orthogonal transformation to the current weight W0
             new_weights = A @ W0
 
             # Update the model's weights with the new transformed weights
@@ -108,23 +82,19 @@ class OrthogonalFineTuner:
                 # if model_name == name:
                     # param.data = new_weights.to(torch.float16).data
 
-            # Compute the loss for this weight
             hyperspherical_energy = self.compute_hyperspherical_energy(new_weights)
             pretrained_energy = self.compute_hyperspherical_energy(W0)
             loss = torch.abs(hyperspherical_energy - pretrained_energy)
-            
-            # Accumulate the loss
             total_loss += loss
 
-        return total_loss
+        return total_loss/self.num_layers
 
-    def finetune(self):
+    def finetune(self,loss):
         # Fine-tuning loop
         for step in range(self.num_steps):
             self.optimizer.zero_grad()
             
             # Forward pass and compute loss
-            loss = self.orthogonalize_step()
             loss = loss.to(torch.float32).requires_grad_(True)
             
             # Backward and update C
@@ -133,9 +103,6 @@ class OrthogonalFineTuner:
 
             # Store the loss
             self.losses.append(loss.item())
-
-            if step % 1 == 0:
-                print(f"Step {step}, Loss: {loss.item()}")
         
         return self.model
 
