@@ -213,8 +213,7 @@ def main(args):
     model.cuda()
 
     # set optimizer (all params have requires_grad=True)
-    params = list(unwrap_model(model).model.parameters())
-    params+= list(tuner.C_matrices.values())
+    params = unwrap_model(model).model.parameters()
     if args.opt == 'adamw':
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
     elif args.opt == 'sgd':
@@ -389,6 +388,8 @@ def train_one_epoch(
         loss_total.backward()
         optimizer.step()
         optimizer.zero_grad()
+        tuner.optimizer.step()
+        tuner.optimizer.zero_grad()
         step_total += 1
         scheduler(step_total)
 
