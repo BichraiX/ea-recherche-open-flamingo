@@ -19,7 +19,6 @@ class OrthogonalFineTuner:
         self.proj_weights = {}
         self.C_matrices = {}
         layers_to_finetune = [
-                "model.positional_embedding",        # Adds positional encoding to image patches
                 "model.proj",                        # Projects extracted features to embedding space
                 "model.transformer.resblocks.0.attn.in_proj_weight",  # Attention projection weight in the first transformer block
                 "model.transformer.resblocks.0.attn.out_proj.weight", # Output projection weight for attention in the first block

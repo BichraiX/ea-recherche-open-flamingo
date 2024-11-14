@@ -521,10 +521,10 @@ def compute_acc(logits, targets):
     return acc
 
 
-def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, tuner = None, orthogonal_training = False,
+def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, lam = 10,tuner = None, orthogonal_training = False,
                  embedding_text_labels_norm=None, reduction='mean'):
     if tuner and orthogonal_training:
-        orth_reg = tuner.orthogonalize_step()
+        orth_reg = lam*tuner.orthogonalize_step()
     else:
         orth_reg = 0
     if loss_str == 'l2':
