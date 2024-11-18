@@ -17,7 +17,9 @@ class OrthogonalFineTuner:
         self.num_steps = num_steps
 
         self.proj_weights = {}
+        self.A_matrices = {}
         self.C_matrices = {}
+
         layers_to_finetune = [
                 "model.proj",                        # Projects extracted features to embedding space
                 "model.transformer.resblocks.0.attn.in_proj_weight",  # Attention projection weight in the first transformer block
@@ -25,14 +27,17 @@ class OrthogonalFineTuner:
                 "model.transformer.resblocks.0.mlp.c_fc.weight",       # Fully connected layer weight in the first block’s MLP
                 "model.transformer.resblocks.0.mlp.c_proj.weight",
             ]
+        self.layers_to_finetune = layers_to_finetune
         self.num_layers = len(layers_to_finetune)
         for name, param in self.model.named_parameters():
             if name in layers_to_finetune:
                 self.proj_weights[name] = param.clone().to(torch.float32).to(self.device)
-                random_matrix = torch.randn(param.shape[0], param.shape[0], device=self.device, requires_grad=True)
-                C_matrix = (random_matrix - random_matrix.T) / 2 
-                C_matrix = C_matrix.detach().requires_grad_(True)
-                self.C_matrices[name] = C_matrix
+                C_matrix = torch.zeros(param.shape[0],param.shape[0], requires_grad=True, device = self.device)
+                I = torch.eye(C_matrix.shape[0], device=self.device)
+                A = ((I + C_matrix).inverse() @ (I - C_matrix)).requires_grad_(True)
+                self.C_matrices[name] = C_matrix                
+                self.A_matrices[name] = A
+
         self.optimizer = torch.optim.Adam(self.C_matrices.values(), lr=self.lr)
         self.losses = []
 
