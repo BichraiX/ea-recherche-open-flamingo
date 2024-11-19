@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from CLIP_benchmark.clip_benchmark.metrics.linear_probe import cosine_lr
 from torchvision import transforms
-from defense.orthogonalfinetuning import OrthogonalFineTuner
+# from defense.orthogonalfinetuning import FineTuner
 from open_flamingo.eval.classification_utils import IMAGENET_1K_CLASS_ID_TO_LABEL
 from train.pgd_train import pgd
 from train.apgd_train import apgd_train as apgd
@@ -201,19 +201,24 @@ def main(args):
             raise ValueError(f'Unknown model: {args.clip_model_name}')
 
     model_orig.cpu()
-    model_orig = ClipVisionModel(model=model_orig.visual, args=args, normalize=normalize)
+    model_orig = ClipVisionModelOrig(model=model_orig.visual, args=args, normalize=normalize)
     if num_gpus > 1:
         model_orig = torch.nn.DataParallel(model_orig)
     model_orig.cuda()
 
-    model = ClipVisionModel(model=model.visual, args=args, normalize=normalize)
-    for name, param in model.named_parameters():
-        if name == "model.proj":
-            old_weights = param
-    tuner = OrthogonalFineTuner(model, device = main_device)
-    for name, param in model.named_parameters():
-        if name in tuner.layers_to_finetune:
-            param = tuner.A_matrices[name]@ param
+    finetune_layers = [
+                "model.proj",                        # Projects extracted features to embedding space
+                "model.transformer.resblocks.0.attn.in_proj_weight",  # Attention projection weight in the first transformer block
+                "model.transformer.resblocks.0.attn.out_proj.weight", # Output projection weight for attention in the first block
+                "model.transformer.resblocks.0.mlp.c_fc.weight",       # Fully connected layer weight in the first block’s MLP
+                "model.transformer.resblocks.0.mlp.c_proj.weight",
+            ]    
+    model = ClipVisionModel(
+    model=model.visual,
+    args=args,
+    normalize=normalize,
+    finetune_layers=finetune_layers
+    )
     if num_gpus > 1:
         model = torch.nn.DataParallel(model)
     model.cuda()
@@ -221,10 +226,10 @@ def main(args):
     # set optimizer (all params have requires_grad=True)
     params = unwrap_model(model).model.parameters()
     if args.opt == 'adamw':
-        optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.wd)
     elif args.opt == 'sgd':
         optimizer = torch.optim.SGD(
-            params,
+            filter(lambda p: p.requires_grad, model.parameters()),
             lr=args.lr,
             momentum=args.momentum_sgd,
             weight_decay=args.wd
@@ -248,8 +253,6 @@ def main(args):
     while step_total < args.steps:
         step_total = train_one_epoch(
             step_total,
-            old_weights,
-            tuner = tuner,
             model=model,
             model_orig=model_orig,
             dataloader=dataloader,
@@ -275,7 +278,7 @@ def main(args):
         # rename temp dir to final dir
         os.rename(args.output_dir, args.output_dir[:-5])
 
-class ClipVisionModel(torch.nn.Module):
+class ClipVisionModelOrig(torch.nn.Module):
     def __init__(self, model, args, normalize):
         super().__init__()
         self.model = model
@@ -288,26 +291,78 @@ class ClipVisionModel(torch.nn.Module):
             embedding = F.normalize(embedding, dim=-1)
         return embedding
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class ClipVisionModel(torch.nn.Module):
+    def __init__(self, model, args, normalize, finetune_layers=None):
+        super().__init__()
+        self.model = model  # This is model.visual from CLIP
+        self.args = args
+        self.normalize = normalize
+
+        # Initialize W_img as a learnable parameter initialized to the identity matrix
+        embedding_dim = self.model.output_dim  # Get the embedding dimension
+        device = next(model.parameters()).device
+        self.W_img = nn.Parameter(torch.eye(embedding_dim, device=device))
+
+        # Ensure W_img has requires_grad = True
+        self.W_img.requires_grad = True
+
+        # Set up which layers to fine-tune
+        self.finetune_layers = finetune_layers
+
+        # Freeze parameters if finetune_layers is specified
+        if finetune_layers is not None:
+            # Freeze all parameters in the model
+            for param in self.model.parameters():
+                param.requires_grad = False
+            # Unfreeze the specified layers
+            for layer_prefix in finetune_layers:
+                for name, param in self.model.named_parameters():
+                    if name.startswith(layer_prefix):
+                        param.requires_grad = True
+
+    def forward(self, vision, output_normalize):
+        # Apply the model to get embeddings
+        embedding = self.model(self.normalize(vision))
+        # Apply output normalization if specified
+        if output_normalize:
+            embedding = F.normalize(embedding, dim=-1)
+        # Apply the orthogonal transformation
+        embedding = embedding @ self.W_img
+        return embedding
+
+    def enforce_orthogonality(self):
+        # Re-orthogonalize W_img after each optimizer step
+        with torch.no_grad():
+            self.W_img.copy_(orthonormalize_matrix(self.W_img))
+
+def orthonormalize_matrix(W):
+    # Orthonormalize matrix W using QR decomposition
+    q, r = torch.linalg.qr(W)
+    return q
+
 
 class ComputeLossWrapper:
-    def __init__(self, embedding_orig, embedding_text_labels_norm, tuner = None, orthogonal_training = False,reduction='mean', loss=None,
+    def __init__(self, embedding_orig, embedding_text_labels_norm, orthogonal_training = False,reduction='mean', loss=None,
                  logit_scale=100.):
         self.embedding_orig = embedding_orig
         self.embedding_text_labels_norm = embedding_text_labels_norm
         self.reduction = reduction
         self.loss_str = loss
         self.logit_scale = logit_scale
-        self.tuner = tuner
-        self.orthogonal_training = orthogonal_training
+        
     def __call__(self, embedding, targets):
         return compute_loss(
             loss_str=self.loss_str, embedding=embedding, targets=targets,
-            embedding_orig=self.embedding_orig, logit_scale=self.logit_scale, tuner = self.tuner, orthogonal_training = self.orthogonal_training,
+            embedding_orig=self.embedding_orig, logit_scale=self.logit_scale,
             embedding_text_labels_norm=self.embedding_text_labels_norm, reduction=self.reduction
             )
 
 def train_one_epoch(
-        step_total,old_weights,tuner, model, model_orig, dataloader, optimizer, scheduler, normalize,
+        step_total, model, model_orig, dataloader, optimizer, scheduler, normalize,
         embedding_text_labels_norm, args, epoch, dataloader_eval=None
 ):
     model_orig.eval()
@@ -327,12 +382,12 @@ def train_one_epoch(
             targets = targets.cuda()
 
         with torch.no_grad():
-            embedding_orig = model_orig(vision=data, output_normalize=args.output_normalize)
+            embedding_orig = model_orig(data, output_normalize=args.output_normalize)
 
         # loss for the attack
         loss_inner_wrapper = ComputeLossWrapper(
             embedding_orig, embedding_text_labels_norm,
-            reduction='none' if args.attack == 'apgd' else 'mean', loss=args.inner_loss, tuner = tuner, orthogonal_training = False,
+            reduction='none' if args.attack == 'apgd' else 'mean', loss=args.inner_loss,
             logit_scale=100.
             )
         model.eval()
@@ -351,7 +406,7 @@ def train_one_epoch(
                 perturbation=torch.zeros_like(data).uniform_(-args.eps, args.eps).requires_grad_(True),
                 mode='max',
                 verbose=False
-            )
+                )
         elif args.attack == 'apgd':
             # apgd currently always applies output normalization
             data_adv = apgd(
@@ -370,16 +425,17 @@ def train_one_epoch(
         del loss_inner_wrapper
         model.train()
 
-        embedding_clean = model(data, output_normalize=args.output_normalize)
+        embedding_clean = model(vision=data, output_normalize=args.output_normalize)
         if args.clean_weight > 0.:
             loss_clean = compute_loss(
-                loss_str=args.loss_clean, embedding=embedding_clean, targets=targets,
-                embedding_orig=embedding_orig, logit_scale=100., tuner = tuner, orthogonal_training = True, embedding_text_labels_norm=None
-                )
+                embedding=embedding_clean, targets=targets,
+                embedding_orig=embedding_orig, embedding_text_labels_norm=embedding_text_labels_norm,
+                logit_scale=100., loss_str=args.loss_clean
+            )
         else:
             loss_clean = 0.
 
-        embedding_adv = model(data_adv, output_normalize=args.output_normalize)
+        embedding_adv = model(vision=data_adv, output_normalize=args.output_normalize)
         del data, data_adv
 
         if args.trades:
@@ -387,22 +443,20 @@ def train_one_epoch(
             embedding_orig.cpu()
 
         loss = compute_loss(
-            loss_str=args.loss, embedding=embedding_adv, targets=targets,
+            embedding=embedding_adv, targets=targets,
             embedding_orig=embedding_orig if not args.trades else embedding_clean_no_grad,
-            logit_scale=100., tuner = tuner, orthogonal_training = True,embedding_text_labels_norm=embedding_text_labels_norm
-            )
+            logit_scale=100., embedding_text_labels_norm=embedding_text_labels_norm,
+            loss_str=args.loss
+        )
         loss_total = args.clean_weight * loss_clean + (1 - args.clean_weight) * loss
         loss_total.backward()
         optimizer.step()
         optimizer.zero_grad()
-        tuner.optimizer.step()
-        tuner.optimizer.zero_grad()
-        for name, param in model.named_parameters():
-            if name == "model.proj":
-                finetuned_weights = param
-        print("works as intended",finetuned_weights[0] != (old_weights)[0])
         step_total += 1
         scheduler(step_total)
+
+        # Enforce orthogonality after optimizer step
+        model.enforce_orthogonality()
 
         with torch.no_grad():
             # only for logging
@@ -432,7 +486,7 @@ def train_one_epoch(
             data_eval, targets_eval = next(iter(dataloader_eval))
             data_eval, targets_eval = data_eval.cuda(), targets_eval.cuda()
             loss_eval_wrapper = ComputeLossWrapper(
-                embedding_orig=None, embedding_text_labels_norm=embedding_text_labels_norm, tuner = tuner, orthogonal_training = True,
+                embedding_orig=None, embedding_text_labels_norm=embedding_text_labels_norm,
                 reduction='none', loss='ce', logit_scale=100.
                 )
             data_eval_adv = apgd(
@@ -532,7 +586,7 @@ def compute_acc(logits, targets):
     return acc
 
 
-def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, lam = 10,tuner = None, orthogonal_training = False,
+def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale,
                  embedding_text_labels_norm=None, reduction='mean'):
     if loss_str == 'l2':
         loss = l2(out=embedding, targets=embedding_orig, reduction=reduction)
@@ -543,24 +597,23 @@ def compute_loss(loss_str, embedding, targets, embedding_orig, logit_scale, lam 
             reduction=reduction
         )
     elif loss_str == 'orthogonal':
-        loss = ortho(embedding, embedding_orig, targets, logit_scale, embedding_text_labels_norm)
+        loss = ortho(embedding,targets,embedding_orig,embedding_text_labels_norm, logit_scale)
     else:
         raise ValueError(f'loss {loss_str} not supported')
     return loss
 
-def ortho(embedding, embedding_orig, targets, logit_scale, embedding_text_labels_norm, lambd = 0.5):
-    logits_fine_tuned = embedding @ (logit_scale * embedding_text_labels_norm)
-    logits_orig = embedding_orig @ (logit_scale * embedding_text_labels_norm)
-    prob_fine_tuned = torch.nn.functional.log_softmax(logits_fine_tuned, dim=-1)  # Log probabilities for fine-tuned
-    prob_orig = torch.nn.functional.softmax(logits_orig, dim=-1)      
-    loss_ce = ce(
-            out=logits_fine_tuned,
-            targets=targets,
-            reduction='mean'
-        )
-    kl_criterion = torch.nn.KLDivLoss(reduction="batchmean")
-    loss_kl = kl_criterion(prob_fine_tuned, prob_orig)
-    return(lambd*loss_ce+(1-lambd)*loss_kl)
+def ortho(
+    embedding, targets, embedding_orig, embedding_text_labels_norm,
+    logit_scale, lambda_img = 0.2
+):
+    embedding_norm = F.normalize(embedding, dim=1)
+    logits = logit_scale * embedding_norm @ embedding_text_labels_norm.T
+    loss_main = F.cross_entropy(logits, targets)
+    reg_img = lambda_img * F.mse_loss(embedding, embedding_orig)
+    reg_text = 0 
+
+    total_loss = loss_main + reg_img + reg_text
+    return total_loss
 
 def l2(out, targets, reduction='none'):
     # squared l2 - it does not divide by the latent dimension
